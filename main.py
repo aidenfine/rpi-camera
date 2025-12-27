@@ -1,27 +1,37 @@
 import cv2 as cv
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+
+app = FastAPI()
 
 
-def main():
+def frame_generator():
     cap = cv.VideoCapture(0)
-
     if not cap.isOpened():
-        print("Error: Cannot access webcam")
-        exit()
+        raise RuntimeError("Could not open camera")
 
-    print("Webcam in use press q to quit")
-    while True:
-        ret, frame = cap.read()
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if not ret:
-            print("breaking")
-            break
-        cv.imshow("webcam free", frame)
+            # Encode frame as JPEG
+            ret, buffer = cv.imencode(".jpg", frame)
+            if not ret:
+                continue
 
-        if cv.waitKey(1) & 0xFF == ord("q"):
-            break
-    cap.release()
-    cv.destroyAllWindows()
+            frame_bytes = buffer.tobytes()
+
+            yield (
+                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+            )
+    finally:
+        cap.release()
 
 
-if __name__ == "__main__":
-    main()
+@app.get("/video")
+def video_feed():
+    return StreamingResponse(
+        frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame"
+    )
