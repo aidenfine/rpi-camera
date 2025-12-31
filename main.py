@@ -4,7 +4,7 @@ import time
 from contextlib import asynccontextmanager
 import datetime as dt
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
 
@@ -72,13 +72,13 @@ def frame_generator(client_id: str):
 
 
 def write_client_connect_to_logs(client):
-    today = dt.date.today
+    today = dt.date.today()
     with open(f"logs/{today}", "a") as f:
-        f.write(f"Client: {client['ip']}, Time: {client['time']}")
+        f.write(f"Client: {client['ip']}, Time: {client['time']}\n")
 
 
 @app.get("/video")
-def video_feed(request):
+def video_feed(request: Request):
     client_ip = request.client.host
 
     with clients_lock:
