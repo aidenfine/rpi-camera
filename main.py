@@ -2,9 +2,14 @@ import cv2 as cv
 import threading
 import time
 from contextlib import asynccontextmanager
+import datetime as dt
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
+
+
+connected_clients = set()
+clients_lock = threading.Lock()
 
 lock = threading.Lock()
 latest_frame = None
@@ -43,25 +48,45 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-def frame_generator():
-    while True:
-        with lock:
-            if latest_frame is None:
+def frame_generator(client_id: str):
+    try:
+        while True:
+            with lock:
+                if latest_frame is None:
+                    continue
+                frame = latest_frame.copy()
+
+            ret, buffer = cv.imencode(".jpg", frame)
+            if not ret:
                 continue
-            frame = latest_frame.copy()
 
-        ret, buffer = cv.imencode(".jpg", frame)
-        if not ret:
-            continue
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n"
+            )
+    except GeneratorExit:
+        with clients_lock:
+            connected_clients.discard(client_id)
+            write_client_connect_to_logs({"ip": client_id, "time": dt.datetime.now()})
+        print(f"Client disconnected: {client_id}")
 
-        yield (
-            b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n"
-        )
+
+def write_client_connect_to_logs(client):
+    today = dt.date.today
+    with open(f"logs/{today}", "a") as f:
+        f.write(f"Client: {client['ip']}, Time: {client['time']}")
 
 
 @app.get("/video")
-def video_feed():
+def video_feed(request):
+    client_ip = request.client.host
+
+    with clients_lock:
+        connected_clients.add(client_ip)
+        print(f"Client connected: {client_ip}")
+        print(f"Active clients: {len(connected_clients)}")
+
     return StreamingResponse(
-        frame_generator(),
+        frame_generator(client_ip),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
