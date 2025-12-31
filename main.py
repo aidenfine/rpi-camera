@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import datetime as dt
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 
 
 connected_clients = set()
@@ -90,3 +90,32 @@ def video_feed(request: Request):
         frame_generator(client_ip),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Camera Stream</title>
+        <style>
+            body {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                background: #111;
+            }
+            img {
+                border: 4px solid #444;
+                border-radius: 8px;
+                max-width: 90%;
+            }
+        </style>
+    </head>
+    <body>
+        <img src="/video" alt="Live Camera Feed">
+    </body>
+    </html>
+    """
