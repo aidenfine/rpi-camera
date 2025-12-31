@@ -1,22 +1,19 @@
 import cv2 as cv
 import threading
 import time
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
-app = FastAPI()
-
-camera = cv.VideoCapture(0)
-if not camera.isOpened():
-    raise RuntimeError("Could not open camera")
-
 lock = threading.Lock()
 latest_frame = None
+stop_event = threading.Event()
 
 
-def capture_loop():
+def capture_loop(camera):
     global latest_frame
-    while True:
+    while not stop_event.is_set():
         ret, frame = camera.read()
         if not ret:
             time.sleep(0.1)
@@ -28,10 +25,22 @@ def capture_loop():
         time.sleep(0.03)  # ~30 FPS
 
 
-@app.on_event("startup")
-def start_camera():
-    thread = threading.Thread(target=capture_loop, daemon=True)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    camera = cv.VideoCapture(0)
+    if not camera.isOpened():
+        raise RuntimeError("Could not open camera")
+
+    thread = threading.Thread(target=capture_loop, args=(camera,), daemon=True)
     thread.start()
+
+    yield
+
+    stop_event.set()
+    camera.release()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 def frame_generator():
@@ -53,5 +62,6 @@ def frame_generator():
 @app.get("/video")
 def video_feed():
     return StreamingResponse(
-        frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame"
+        frame_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
     )
